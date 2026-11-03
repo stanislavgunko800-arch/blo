@@ -1,0 +1,34 @@
+import {writeFile} from 'node:fs/promises';
+const targets=await(await fetch('http://localhost:9222/json')).json();
+const ws=new WebSocket(targets[0].webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let seq=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result);}};
+const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
+const ev=async expression=>{const r=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
+const check=async(expression,message)=>{if(!await ev(expression))throw Error(message);console.log('PASS '+message);};
+await call('Page.enable');await call('Page.navigate',{url:'http://localhost:3000'});await new Promise(r=>setTimeout(r,400));
+const backup=await ev(`localStorage.getItem('formula-journal-v1')`);
+try{
+await ev(`(async()=>{const canvas=document.createElement('canvas');canvas.width=4;canvas.height=4;canvas.getContext('2d').fillRect(0,0,4,4);const before=canvas.toDataURL('image/jpeg');await mediaStore('put','edit-test-video',new Blob(['original-video'],{type:'video/webm'}));localStorage.setItem('formula-journal-v1',JSON.stringify([{id:'edit-client',name:'Редактирование Тест',phone:'+7 999 123-45-67',notes:'',visits:[{id:'original-visit',date:'2026-10-01',title:'До правки',base:'База 7',formula:'7/1 — 30 г',oxide:'6%',time:'35 минут',notes:'Заметка',before,after:before,videoId:'edit-test-video'}]}]));})()`);
+await call('Page.reload');await new Promise(r=>setTimeout(r,400));
+await check(`document.title==='SayYes — клиенты'&&document.querySelector('.brand').textContent==='SayYes'`,'SayYes branding');
+await ev(`document.querySelector('[data-edit-visit]').click()`);
+await check(`document.querySelector('#visitForm [name=date]').value==='2026-10-01'&&document.querySelector('#visitForm [name=formula]').value==='7/1 — 30 г'&&document.querySelectorAll('#photoPreviews img').length===2`,'Edit restores original date, text and photos');
+await ev(`document.querySelector('#visitForm [name=title]').value='После правки';document.querySelector('#visitForm [name=date]').value='2026-10-02';document.querySelector('#visitForm [name=formula]').value='7/1 — 40 г';document.querySelector('#visitForm').requestSubmit()`);await new Promise(r=>setTimeout(r,300));
+await check(`(()=>{const visits=JSON.parse(localStorage.getItem('formula-journal-v1'))[0].visits;return visits.length===1&&visits[0].id==='original-visit'&&visits[0].formula==='7/1 — 40 г'&&visits[0].date==='2026-10-02'&&!!visits[0].before&&!!visits[0].after&&visits[0].videoId==='edit-test-video';})()`,'Editing updates same record and preserves attachments');
+await call('Page.reload');await new Promise(r=>setTimeout(r,300));
+await check(`document.querySelector('.visit h3').textContent==='После правки'`,'Edit persists after reload');
+await ev(`document.querySelector('[data-edit-visit]').click();document.querySelector('#visitForm [name=title]').value='Отмена';document.querySelector('#visitForm [name=removeBefore]').checked=true;document.querySelector('#visitDialog').close()`);await new Promise(r=>setTimeout(r,100));
+await check(`(()=>{const v=JSON.parse(localStorage.getItem('formula-journal-v1'))[0].visits[0];return v.title==='После правки'&&!!v.before;})()`,'Cancel leaves original text and media unchanged');
+await ev(`document.querySelector('[data-edit-visit]').click();document.querySelector('#visitForm [name=title]').value='Ошибка хранилища';window.originalSetItem=Storage.prototype.setItem;Storage.prototype.setItem=()=>{throw new Error('QuotaExceededError')};document.querySelector('#visitForm').requestSubmit()`);await new Promise(r=>setTimeout(r,200));
+await check(`document.querySelector('#visitDialog').open&&JSON.parse(localStorage.getItem('formula-journal-v1'))[0].visits[0].title==='После правки'`,'Failed save preserves existing record');
+await ev(`Storage.prototype.setItem=window.originalSetItem;document.querySelector('#visitDialog').close()`);await new Promise(r=>setTimeout(r,100));
+await ev(`document.querySelector('[data-edit-visit]').click();const f=document.querySelector('#visitForm');f.elements.removeBefore.checked=true;f.elements.removeVideo.checked=true;f.requestSubmit()`);await new Promise(r=>setTimeout(r,250));
+await check(`(()=>{const v=JSON.parse(localStorage.getItem('formula-journal-v1'))[0].visits[0];return !v.before&&!!v.after&&!v.videoId;})()`,'Explicit removal deletes only selected attachments');
+await ev(`document.querySelector('[data-edit-visit]').click();(async()=>{const canvas=document.createElement('canvas');canvas.width=8;canvas.height=8;const blob=await new Promise(r=>canvas.toBlob(r,'image/png'));const images=new DataTransfer();images.items.add(new File([blob],'replacement.png',{type:'image/png'}));const f=document.querySelector('#visitForm');f.elements.after.files=images.files;const videos=new DataTransfer();videos.items.add(new File(['replacement-video'],'replacement.webm',{type:'video/webm'}));f.elements.video.files=videos.files;f.requestSubmit();})()`);await new Promise(r=>setTimeout(r,350));
+await check(`(async()=>{const v=JSON.parse(localStorage.getItem('formula-journal-v1'))[0].visits[0];return !!v.after&&!!v.videoId&&(await(await mediaStore('get',v.videoId)).text())==='replacement-video';})()`,'Replacement photo and video saved');
+await ev(`document.querySelector('[data-repeat]').click()`);
+await check(`document.querySelector('#visitDialogTitle').textContent==='Новое окрашивание'&&document.querySelectorAll('#photoPreviews img').length===0&&document.querySelector('#videoPreview').hidden`,'Repeat remains a new record without old media');
+await ev(`document.querySelector('#visitForm').requestSubmit()`);await new Promise(r=>setTimeout(r,250));
+await check(`(()=>{const vs=JSON.parse(localStorage.getItem('formula-journal-v1'))[0].visits;return vs.length===2&&vs[1].id!=='original-visit'&&!vs[1].before&&!vs[1].after&&!vs[1].videoId;})()`,'Repeat creates separate record');
+await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await new Promise(r=>setTimeout(r,200));
+await check(`document.documentElement.scrollWidth<=390`,'SayYes fits mobile viewport');
+}finally{await ev(`(()=>{if(window.originalSetItem)Storage.prototype.setItem=window.originalSetItem;localStorage.setItem('formula-journal-v1',${JSON.stringify(backup)});})()`);await call('Page.reload');ws.close();}

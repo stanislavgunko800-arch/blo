@@ -1,12 +1,13 @@
 {
-  "name": "formula-color-journal",
+  "name": "sayyes-color-journal",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "start": "node --use-env-proxy server.mjs",
     "check": "node --check app.js && node --check server.mjs && node --check ai.mjs",
     "test": "node --test tests/ai.test.mjs",
-    "test:browser": "node tests/browser.mjs"
+    "test:browser": "node tests/browser.mjs",
+    "test:edit": "node tests/edit.browser.mjs"
   },
   "engines": {
     "node": ">=24.5.0"

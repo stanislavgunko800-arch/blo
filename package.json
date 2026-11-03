@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "start": "node --use-env-proxy server.mjs",
-    "check": "node --check app.js && node --check server.mjs && node --check ai.mjs",
-    "test": "node --test tests/ai.test.mjs",
+    "check": "node --check app.js && node --check server.mjs && node --check ai.mjs && node --check reminders.js",
+    "test": "node --test tests/*.test.mjs",
     "test:browser": "node tests/browser.mjs",
     "test:edit": "node tests/edit.browser.mjs",
     "test:clients": "node tests/client.browser.mjs",
-    "test:home": "node tests/home.browser.mjs"
+    "test:home": "node tests/home.browser.mjs",
+    "test:followups": "node tests/followup.browser.mjs"
   },
   "engines": {
     "node": ">=24.5.0"

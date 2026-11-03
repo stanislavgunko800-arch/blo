@@ -4,7 +4,7 @@ const ws=new WebSocket(targets[0].webSocketDebuggerUrl);await new Promise(r=>ws.
 const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
 const ev=async expression=>{const r=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
 const check=async(expression,message)=>{if(!await ev(expression))throw Error(message);console.log('PASS '+message);};
-await call('Page.enable');await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1080,deviceScaleFactor:1,mobile:false});await call('Page.navigate',{url:'http://localhost:3000'});await new Promise(r=>setTimeout(r,400));
+await call('Page.enable');await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1080,deviceScaleFactor:1,mobile:false});await call('Page.navigate',{url:process.env.APP_URL||'http://localhost:3000'});await new Promise(r=>setTimeout(r,400));
 const backup=await ev(`localStorage.getItem('formula-journal-v1')`);
 try{
 await ev(`localStorage.setItem('formula-journal-v1',JSON.stringify([{id:'profile-test',name:'Анна Тест',phone:'',notes:'Исходная заметка',visits:[{id:'visit-test',date:'2026-10-01',title:'Окрашивание',base:'7',formula:'7/1 — 30 г',oxide:'6%',time:'35 минут',notes:'Сохранить',before:'',after:''}]}]))`);await call('Page.reload');await new Promise(r=>setTimeout(r,300));

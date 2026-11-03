@@ -1,0 +1,30 @@
+import {writeFile} from 'node:fs/promises';
+const targets=await(await fetch('http://localhost:9222/json')).json();
+const ws=new WebSocket(targets[0].webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let seq=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result);}};
+const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
+const ev=async expression=>{const r=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
+const check=async(expression,message)=>{if(!await ev(expression))throw Error(message);console.log('PASS '+message);};
+await call('Page.enable');await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1080,deviceScaleFactor:1,mobile:false});await call('Page.navigate',{url:'http://localhost:3000'});await new Promise(r=>setTimeout(r,300));
+const backup=await ev(`localStorage.getItem('formula-journal-v1')`);
+try{
+await ev(`localStorage.setItem('formula-journal-v1',JSON.stringify([{id:'z',name:'Анна',surname:'Яковлева',phone:'',notes:'',visits:[]},{id:'same2',name:'Борис',surname:'Белов',phone:'',notes:'',visits:[]},{id:'legacy',name:'Яна Абрамова',phone:'',notes:'',visits:[]},{id:'same1',name:'Алексей',surname:'Белов',phone:'',notes:'',visits:[]},{id:'single',name:'Виктор',phone:'',notes:'',visits:[]}]))`);await call('Page.reload');await new Promise(r=>setTimeout(r,300));
+await check(`JSON.stringify([...document.querySelectorAll('[data-client]')].map(x=>x.dataset.client))===JSON.stringify(['legacy','same1','same2','single','z'])`,'Russian surname order with legacy names and first-name tie break');
+await check(`document.querySelector('.client.selected').dataset.client==='legacy'`,'First alphabetic client selected initially');
+await check(`document.querySelector('.home-hero .hero-logo').textContent==='SayYes.'&&!document.querySelector('.stats')&&!document.querySelector('.aside-bottom')`,'Colorful SayYes home without dashboard or personal profile block');
+await check(`document.querySelector('.salon-promo').getAttribute('href')==='https://www.instagram.com/say_yes_beauty/'&&document.querySelector('.salon-promo').rel.includes('noopener')`,'Salon Instagram link configured');
+await ev(`document.querySelector('[data-client="z"]').click();document.querySelector('#editClient').click()`);
+await check(`document.querySelector('#clientForm [name=surname]').value==='Яковлева'`,'Surname editable independently');
+await ev(`document.querySelector('#clientForm [name=surname]').value='Ааева';document.querySelector('#clientForm').requestSubmit()`);
+await check(`document.querySelector('[data-client]').dataset.client==='z'&&document.querySelector('.profile h2').textContent==='Ааева Анна'`,'Edited surname moves client and appears in card');
+await ev(`document.querySelector('#search').value='белов';document.querySelector('#search').dispatchEvent(new Event('input'))`);
+await check(`JSON.stringify([...document.querySelectorAll('[data-client]')].map(x=>x.dataset.client))===JSON.stringify(['same1','same2'])`,'Search includes surname and keeps alphabetic order');
+await ev(`document.querySelector('#allClients').click();document.querySelector('#addClient').click();document.querySelector('#clientForm [name=name]').value='Мария';document.querySelector('#clientForm [name=surname]').value='Аверина';document.querySelector('#clientForm').requestSubmit()`);
+await check(`document.querySelectorAll('.client strong')[2].textContent==='Аверина Мария'`,'New client inserted alphabetically');
+await call('Page.reload');await new Promise(r=>setTimeout(r,250));
+await check(`document.querySelectorAll('.client strong')[2].textContent==='Аверина Мария'&&JSON.parse(localStorage.getItem('formula-journal-v1'))[0].id==='z'`,'Order survives reload without rewriting stored history');
+await ev(`document.querySelector('#search').value='никого';document.querySelector('#search').dispatchEvent(new Event('input'))`);
+await check(`document.querySelectorAll('.client').length===0`,'Empty search handled');
+await ev(`document.querySelector('#allClients').click();document.querySelector('#toast').style.display='none'`);
+let shot=await call('Page.captureScreenshot',{format:'png'});await writeFile('/workspace/artifacts/sayyes-home-desktop.png',Buffer.from(shot.data,'base64'));
+await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await new Promise(r=>setTimeout(r,200));await check(`document.documentElement.scrollWidth<=390`,'Colorful home fits phone');shot=await call('Page.captureScreenshot',{format:'png'});await writeFile('/workspace/artifacts/sayyes-home-mobile.png',Buffer.from(shot.data,'base64'));
+}finally{await ev(`localStorage.setItem('formula-journal-v1',${JSON.stringify(backup)})`);await call('Page.reload');ws.close();}

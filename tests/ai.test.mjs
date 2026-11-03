@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import {validateFields} from '../ai.mjs';
+const fields={title:'Бежевый блонд',base:'База 7',formula:'7/1 — 30 г + 7/0 — 15 г',oxide:'6%',time:'35 минут',notes:''};
+test('reject incomplete and oversized AI output',()=>{assert.deepEqual(validateFields(fields),fields);assert.throws(()=>validateFields({title:'Придуманная формула'}));assert.throws(()=>validateFields({...fields,oxide:'x'.repeat(101)}));});
+test('API forwards audio and extracts structured fields, handles service failure',async t=>{
+ let calls=[],fail=false;
+ const provider=http.createServer(async(req,res)=>{const parts=[];for await(const part of req)parts.push(part);const body=Buffer.concat(parts);calls.push({url:req.url,headers:req.headers,body});res.setHeader('Content-Type','application/json');if(fail){res.writeHead(429);res.end('{}');return;}res.end(JSON.stringify(req.url.endsWith('transcriptions')?{text:'База семь, семь дробь один тридцать граммов, оксид шесть процентов, тридцать пять минут.'}:{choices:[{message:{content:JSON.stringify(fields)}}]}));}).listen(0,'127.0.0.1');await once(provider,'listening');t.after(()=>provider.close());
+ const child=spawn(process.execPath,['server.mjs'],{cwd:new URL('..',import.meta.url),env:{...process.env,PORT:'3041',AI_API_KEY:'test-local-only',AI_BASE_URL:`http://127.0.0.1:${provider.address().port}/v1/`},stdio:['ignore','pipe','pipe']});t.after(()=>child.kill());await once(child.stdout,'data');
+ const base='http://127.0.0.1:3041';assert.equal((await(await fetch(base+'/api/status')).json()).configured,true);
+ const transcribed=await fetch(base+'/api/transcribe',{method:'POST',headers:{'Content-Type':'audio/webm'},body:Buffer.from('test-recording')});assert.equal(transcribed.status,200);const {text}=await transcribed.json();assert.match(text,/оксид/);assert.match(calls[0].headers['content-type'],/multipart\/form-data; boundary=/);assert.ok(calls[0].body.includes(Buffer.from('test-recording')));
+ const parsed=await fetch(base+'/api/structure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});assert.equal(parsed.status,200);assert.deepEqual((await parsed.json()).fields,fields);const sent=JSON.parse(calls[1].body);assert.equal(sent.response_format.json_schema.strict,true);assert.equal(sent.messages[1].content,text);
+ assert.equal((await fetch(base+'/api/structure',{method:'POST',headers:{Origin:'https://other.invalid','Content-Type':'application/json'},body:JSON.stringify({text})})).status,403);
+ assert.equal((await fetch(base+'/api/transcribe',{method:'POST',headers:{'Content-Type':'text/html'},body:'invalid'})).status,415);
+ assert.equal((await fetch(base+'/api/structure',{method:'POST',body:JSON.stringify({text:''})})).status,400);
+ fail=true;const failed=await fetch(base+'/api/structure',{method:'POST',body:JSON.stringify({text})});assert.equal(failed.status,502);assert.match((await failed.json()).error,/лимит/);
+});
+test('unconfigured API explicitly reports missing key',async t=>{const child=spawn(process.execPath,['server.mjs'],{cwd:new URL('..',import.meta.url),env:{...process.env,PORT:'3042',AI_API_KEY:''},stdio:['ignore','pipe','pipe']});t.after(()=>child.kill());await once(child.stdout,'data');const base='http://127.0.0.1:3042';assert.equal((await(await fetch(base+'/api/status')).json()).configured,false);const response=await fetch(base+'/api/transcribe',{method:'POST'});assert.equal(response.status,503);assert.match((await response.json()).error,/AI_API_KEY/);});

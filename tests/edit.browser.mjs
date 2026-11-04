@@ -1,5 +1,5 @@
 import {writeFile} from 'node:fs/promises';
-const targets=await(await fetch('http://localhost:9222/json')).json();
+const targets=await(await fetch((process.env.CDP_URL||'http://localhost:9222')+'/json')).json();
 const ws=new WebSocket(targets[0].webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let seq=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result);}};
 const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
 const ev=async expression=>{const r=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
@@ -8,13 +8,13 @@ await call('Page.enable');await call('Page.navigate',{url:process.env.APP_URL||'
 const backup=await ev(`localStorage.getItem('formula-journal-v1')`);
 try{
 await ev(`(async()=>{const canvas=document.createElement('canvas');canvas.width=4;canvas.height=4;canvas.getContext('2d').fillRect(0,0,4,4);const before=canvas.toDataURL('image/jpeg');await mediaStore('put','edit-test-video',new Blob(['original-video'],{type:'video/webm'}));localStorage.setItem('formula-journal-v1',JSON.stringify([{id:'edit-client',name:'Редактирование Тест',phone:'+7 999 123-45-67',notes:'',visits:[{id:'original-visit',date:'2026-10-01',title:'До правки',base:'База 7',formula:'7/1 — 30 г',oxide:'6%',time:'35 минут',notes:'Заметка',before,after:before,videoId:'edit-test-video'}]}]));})()`);
-await call('Page.reload');await new Promise(r=>setTimeout(r,400));
-await check(`document.title==='SayYes — клиенты'&&document.querySelector('.brand').textContent==='SayYes'`,'SayYes branding');
+await call('Page.reload');await new Promise(r=>setTimeout(r,400));await ev(`document.querySelector('#allClients').click();document.querySelector('.client').click()`);
+await check(`document.title==='SayYes — Клиенты'&&document.querySelector('.brand').textContent==='SayYes'`,'SayYes branding');
 await ev(`document.querySelector('[data-edit-visit]').click()`);
 await check(`document.querySelector('#visitForm [name=date]').value==='2026-10-01'&&document.querySelector('#visitForm [name=formula]').value==='7/1 — 30 г'&&document.querySelectorAll('#photoPreviews img').length===2`,'Edit restores original date, text and photos');
 await ev(`document.querySelector('#visitForm [name=title]').value='После правки';document.querySelector('#visitForm [name=date]').value='2026-10-02';document.querySelector('#visitForm [name=formula]').value='7/1 — 40 г';document.querySelector('#visitForm').requestSubmit()`);await new Promise(r=>setTimeout(r,300));
 await check(`(()=>{const visits=JSON.parse(localStorage.getItem('formula-journal-v1'))[0].visits;return visits.length===1&&visits[0].id==='original-visit'&&visits[0].formula==='7/1 — 40 г'&&visits[0].date==='2026-10-02'&&!!visits[0].before&&!!visits[0].after&&visits[0].videoId==='edit-test-video';})()`,'Editing updates same record and preserves attachments');
-await call('Page.reload');await new Promise(r=>setTimeout(r,300));
+await call('Page.reload');await new Promise(r=>setTimeout(r,300));await ev(`document.querySelector('#allClients').click();document.querySelector('.client').click()`);
 await check(`document.querySelector('.visit h3').textContent==='После правки'`,'Edit persists after reload');
 await ev(`document.querySelector('[data-edit-visit]').click();document.querySelector('#visitForm [name=title]').value='Отмена';document.querySelector('#visitForm [name=removeBefore]').checked=true;document.querySelector('#visitDialog').close()`);await new Promise(r=>setTimeout(r,100));
 await check(`(()=>{const v=JSON.parse(localStorage.getItem('formula-journal-v1'))[0].visits[0];return v.title==='После правки'&&!!v.before;})()`,'Cancel leaves original text and media unchanged');

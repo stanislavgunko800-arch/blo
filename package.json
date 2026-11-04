@@ -10,7 +10,8 @@
     "test:edit": "node tests/edit.browser.mjs",
     "test:clients": "node tests/client.browser.mjs",
     "test:home": "node tests/home.browser.mjs",
-    "test:followups": "node tests/followup.browser.mjs"
+    "test:followups": "node tests/followup.browser.mjs",
+    "test:navigation": "node tests/navigation.browser.mjs"
   },
   "engines": {
     "node": ">=24.5.0"
